@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment & Secrets
+.env
+.env.local
+
+# Data files (large)
+maildir/
+extracted_data/
+enron_mail_*.tar.gz
+*.db
+*.sqlite
+*.parquet
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# OS
+.DS_Store
+sample_extraction/
+
+# Docker volumes
+postgres_data/
+pgadmin_data/
