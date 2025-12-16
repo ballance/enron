@@ -31,6 +31,16 @@ enron_mail_*.tar.gz
 *.swo
 .claude/
 
+# Node.js
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.next/
+.nuxt/
+out/
+
 # OS
 .DS_Store
 sample_extraction/

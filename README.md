@@ -2,6 +2,18 @@
 
 A complete pipeline for extracting, processing, and analyzing the Enron email corpus as a graph database in PostgreSQL.
 
+## ⚠️ Security Notice
+
+**This configuration is for LOCAL DEVELOPMENT ONLY!**
+
+The default passwords in `docker-compose.yml` and `.env.example` are publicly visible and should **NEVER** be used in production environments. Before deploying to production:
+
+- Change all default passwords
+- Use environment variables or secrets management (e.g., Docker Secrets, AWS Secrets Manager)
+- Enable SSL/TLS for database connections
+- Configure proper firewall rules
+- Review and harden all security settings
+
 ## 📊 Dataset Overview
 
 The Enron email dataset contains **517,401 emails** from the Federal Energy Regulatory Commission's investigation, representing one of the largest publicly available email corpora for research and analysis.
@@ -282,7 +294,9 @@ Contributions welcome! Areas for enhancement:
 
 ## 📄 License
 
-This project processes public domain data released by FERC. The code is provided as-is for research and educational purposes.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+The Enron email dataset itself is public domain data released by the Federal Energy Regulatory Commission (FERC). The MIT License applies to the code, scripts, schema, and documentation in this repository, not to the underlying email dataset.
 
 ## 🙏 Acknowledgments
 
