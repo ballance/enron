@@ -9,12 +9,18 @@ import pool from '../config/database.js';
  */
 export const getPeople = async (page = 1, limit = 50, filters = {}) => {
   const offset = (page - 1) * limit;
-  const { minSent, minReceived, sortBy = 'sent_count' } = filters;
+  const { minSent, minReceived, sortBy = 'sent_count', search } = filters;
 
   // Build WHERE clause
   const conditions = [];
-  const params = [limit, offset];
-  let paramIndex = 3;
+  const params = [];
+  let paramIndex = 1;
+
+  if (search) {
+    conditions.push(`(email ILIKE $${paramIndex} OR name ILIKE $${paramIndex})`);
+    params.push(`%${search}%`);
+    paramIndex++;
+  }
 
   if (minSent) {
     conditions.push(`sent_count >= $${paramIndex}`);
@@ -30,15 +36,21 @@ export const getPeople = async (page = 1, limit = 50, filters = {}) => {
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Add limit and offset to params at the end
+  const limitParamIndex = paramIndex;
+  const offsetParamIndex = paramIndex + 1;
+  params.push(limit, offset);
+
   // Validate sortBy
   const validSortFields = ['sent_count', 'received_count', 'email', 'id'];
   const sortField = validSortFields.includes(sortBy) ? sortBy : 'sent_count';
   const sortOrder = ['email', 'id'].includes(sortField) ? 'ASC' : 'DESC';
 
-  // Get total count
+  // Get total count (only use filter params, not limit/offset)
+  const countParams = params.slice(0, -2);
   const countResult = await pool.query(
     `SELECT COUNT(*)::int as count FROM people ${whereClause}`,
-    params.slice(2) // Only filter params, not limit/offset
+    countParams
   );
 
   const total = countResult.rows[0].count;
@@ -56,7 +68,7 @@ export const getPeople = async (page = 1, limit = 50, filters = {}) => {
     FROM people
     ${whereClause}
     ORDER BY ${sortField} ${sortOrder}
-    LIMIT $1 OFFSET $2`,
+    LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
     params
   );
 

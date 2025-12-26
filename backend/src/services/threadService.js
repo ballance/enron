@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { parseAttachments } from '../utils/attachmentParser.js';
 
 /**
  * Get paginated list of threads with sorting
@@ -84,8 +85,30 @@ export async function getThreadById(threadId) {
 
 /**
  * Get hierarchical tree structure of messages in a thread
+ * @param {number} threadId - Thread ID
+ * @param {number} limit - Maximum number of messages to return (default 1000)
+ * @returns {Object} Tree structure with metadata
  */
-export async function getThreadTree(threadId) {
+export async function getThreadTree(threadId, limit = 1000) {
+  // First get the total count
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM messages
+    WHERE thread_id = $1
+  `;
+  const countResult = await pool.query(countQuery, [threadId]);
+  const totalMessages = parseInt(countResult.rows[0].total);
+
+  // If thread is too large, return early with warning
+  if (totalMessages > limit) {
+    return {
+      error: 'THREAD_TOO_LARGE',
+      message: `This thread has ${totalMessages.toLocaleString()} messages. Tree view is limited to ${limit.toLocaleString()} messages to prevent browser crashes.`,
+      totalMessages,
+      limit
+    };
+  }
+
   const query = `
     SELECT
       m.id,
@@ -100,9 +123,10 @@ export async function getThreadTree(threadId) {
     LEFT JOIN people p ON m.from_person_id = p.id
     WHERE m.thread_id = $1
     ORDER BY m.date ASC
+    LIMIT $2
   `;
 
-  const result = await pool.query(query, [threadId]);
+  const result = await pool.query(query, [threadId, limit]);
   const messages = result.rows;
 
   // Build a map of message_id -> message
@@ -129,13 +153,33 @@ export async function getThreadTree(threadId) {
     }
   });
 
-  return roots;
+  return {
+    tree: roots,
+    totalMessages,
+    displayedMessages: messages.length,
+    truncated: totalMessages > limit
+  };
 }
 
 /**
  * Get chronological list of messages in a thread
+ * @param {number} threadId - Thread ID
+ * @param {number} page - Page number (1-indexed)
+ * @param {number} limit - Messages per page (default 100)
+ * @returns {Object} Paginated messages with metadata
  */
-export async function getThreadMessages(threadId) {
+export async function getThreadMessages(threadId, page = 1, limit = 100) {
+  const offset = (page - 1) * limit;
+
+  // Get total count
+  const countQuery = `
+    SELECT COUNT(*) as total
+    FROM messages
+    WHERE thread_id = $1
+  `;
+  const countResult = await pool.query(countQuery, [threadId]);
+  const totalMessages = parseInt(countResult.rows[0].total);
+
   const query = `
     SELECT
       m.id,
@@ -151,10 +195,26 @@ export async function getThreadMessages(threadId) {
     LEFT JOIN people p ON m.from_person_id = p.id
     WHERE m.thread_id = $1
     ORDER BY m.date ASC
+    LIMIT $2 OFFSET $3
   `;
 
-  const result = await pool.query(query, [threadId]);
-  return result.rows;
+  const result = await pool.query(query, [threadId, limit, offset]);
+
+  // Parse attachments from each message body
+  const messagesWithAttachments = result.rows.map(msg => ({
+    ...msg,
+    attachments: parseAttachments(msg.body)
+  }));
+
+  return {
+    messages: messagesWithAttachments,
+    pagination: {
+      page,
+      limit,
+      total: totalMessages,
+      totalPages: Math.ceil(totalMessages / limit)
+    }
+  };
 }
 
 /**

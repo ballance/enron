@@ -15,9 +15,12 @@ const ThreadTree = ({ threadId }) => {
     });
   };
 
+  // Check if thread is too large
+  const isThreadTooLarge = data?.error === 'THREAD_TOO_LARGE';
+
   // Transform the tree data to react-d3-tree format
   const treeData = useMemo(() => {
-    if (!data?.tree || data.tree.length === 0) return null;
+    if (isThreadTooLarge || !data?.tree || data.tree.length === 0) return null;
 
     const transformNode = (node) => ({
       name: node.sender_name || node.sender_email?.split('@')[0] || 'Unknown',
@@ -39,7 +42,7 @@ const ThreadTree = ({ threadId }) => {
     }
 
     return transformNode(data.tree[0]);
-  }, [data]);
+  }, [data, isThreadTooLarge]);
 
   if (isLoading) {
     return (
@@ -53,6 +56,42 @@ const ThreadTree = ({ threadId }) => {
     return (
       <div className="p-4 bg-red-50 text-red-600 rounded-md">
         Error loading thread tree: {error.message}
+      </div>
+    );
+  }
+
+  if (isThreadTooLarge) {
+    return (
+      <div className="p-8 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <div className="flex items-start gap-4">
+          <svg className="w-12 h-12 text-yellow-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div>
+            <h3 className="text-lg font-semibold text-yellow-900 mb-2">Thread Too Large for Tree View</h3>
+            <p className="text-yellow-800 mb-4">{data.message}</p>
+            <div className="bg-white rounded-md p-4 mb-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-600">Total Messages:</span>
+                  <span className="ml-2 font-semibold text-gray-900">{data.totalMessages?.toLocaleString()}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Tree View Limit:</span>
+                  <span className="ml-2 font-semibold text-gray-900">{data.limit?.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <span className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-sm">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Try the "Messages" tab to view paginated emails
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

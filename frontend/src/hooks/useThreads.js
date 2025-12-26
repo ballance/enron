@@ -50,11 +50,13 @@ export function useThreadTree(threadId) {
 /**
  * Fetch thread messages
  */
-export function useThreadMessages(threadId) {
+export function useThreadMessages(threadId, page = 1) {
   return useQuery({
-    queryKey: ['thread-messages', threadId],
+    queryKey: ['thread-messages', threadId, page],
     queryFn: async () => {
-      const response = await api.get(`/threads/${threadId}/messages`);
+      const response = await api.get(`/threads/${threadId}/messages`, {
+        params: { page, limit: 100 }
+      });
       return response.data;
     },
     enabled: !!threadId,

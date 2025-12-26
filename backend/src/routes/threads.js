@@ -102,43 +102,48 @@ router.get('/:id', asyncHandler(async (req, res) => {
 /**
  * GET /api/threads/:id/tree
  * Get hierarchical tree structure of thread messages
+ * Query params: limit (default 1000)
  */
 router.get('/:id/tree', asyncHandler(async (req, res) => {
   const threadId = parseInt(req.params.id);
+  const limit = parseInt(req.query.limit) || 1000;
 
   if (isNaN(threadId)) {
     return res.status(400).json({ error: 'Invalid thread ID' });
   }
 
-  const cacheKey = `threads:tree:${threadId}`;
-  const tree = await getOrSetCache(
+  const cacheKey = `threads:tree:${threadId}:${limit}`;
+  const result = await getOrSetCache(
     cacheKey,
     300,
-    () => threadService.getThreadTree(threadId)
+    () => threadService.getThreadTree(threadId, limit)
   );
 
-  res.json({ tree });
+  res.json(result);
 }));
 
 /**
  * GET /api/threads/:id/messages
  * Get chronological list of messages in thread
+ * Query params: page, limit
  */
 router.get('/:id/messages', asyncHandler(async (req, res) => {
   const threadId = parseInt(req.params.id);
+  const page = parseInt(req.query.page) || 1;
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
 
   if (isNaN(threadId)) {
     return res.status(400).json({ error: 'Invalid thread ID' });
   }
 
-  const cacheKey = `threads:messages:${threadId}`;
-  const messages = await getOrSetCache(
+  const cacheKey = `threads:messages:${threadId}:${page}:${limit}`;
+  const result = await getOrSetCache(
     cacheKey,
     300,
-    () => threadService.getThreadMessages(threadId)
+    () => threadService.getThreadMessages(threadId, page, limit)
   );
 
-  res.json({ messages });
+  res.json(result);
 }));
 
 /**

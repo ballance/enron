@@ -15,6 +15,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 50));
 
   const filters = {};
+  if (req.query.search) filters.search = req.query.search;
   if (req.query.minSent) filters.minSent = parseInt(req.query.minSent);
   if (req.query.minReceived) filters.minReceived = parseInt(req.query.minReceived);
   if (req.query.sortBy) filters.sortBy = req.query.sortBy;

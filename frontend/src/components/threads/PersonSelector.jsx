@@ -6,7 +6,7 @@ const PersonSelector = ({ onSelect, selectedPerson }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const { data, isLoading } = usePeople(1, 20, { search: searchQuery });
-  const people = data?.people || [];
+  const people = data?.data || [];
 
   const handleSelect = (person) => {
     onSelect(person);
