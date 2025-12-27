@@ -19,9 +19,58 @@ Complete guide for deploying the Enron Email visualization app to a DigitalOcean
 - [x] DigitalOcean Droplet (2GB RAM minimum)
 
 ### Droplet Info
-- **IP**: `137.184.208.192`
+- **IP**: `YOUR_DROPLET_IP` (replace with your actual droplet IP)
 - **Size**: 2GB RAM, 50GB SSD ($12/month)
 - **OS**: Ubuntu 22.04
+
+## Security Best Practices
+
+### SSH Access
+- **Use SSH keys only** - disable password authentication
+- **Create a non-root user** with sudo privileges instead of using root directly
+- **Configure firewall** (ufw) to only allow ports 22, 80, 443
+- **Consider changing SSH port** from default 22
+- **Use SSH key passphrases** for additional security
+
+### Credential Management
+- **Never commit secrets** to git - they're already in `.gitignore`
+- **Store passwords securely** in a password manager (1Password, LastPass, AWS Secrets Manager)
+- **Rotate database passwords** periodically
+- **Use AWS IAM roles** when possible instead of access keys
+
+### Network Security
+- **Enable DigitalOcean Cloud Firewall** to restrict SSH access to your IP only
+- **Use SSL/TLS** with Let's Encrypt for production deployments
+- **Consider VPN access** for administrative tasks instead of exposing SSH publicly
+
+### Monitoring
+- **Enable DigitalOcean Monitoring** (free) for resource usage alerts
+- **Set up log monitoring** for suspicious activity
+- **Configure automated backups** (see Optional: Enable Backups section)
+- **Monitor ECR for unauthorized image pushes**
+
+### Example: Create Non-Root User
+
+```bash
+# On droplet (as root)
+adduser deploy
+usermod -aG sudo deploy
+usermod -aG docker deploy
+
+# Copy SSH keys
+mkdir -p /home/deploy/.ssh
+cp /root/.ssh/authorized_keys /home/deploy/.ssh/
+chown -R deploy:deploy /home/deploy/.ssh
+chmod 700 /home/deploy/.ssh
+chmod 600 /home/deploy/.ssh/authorized_keys
+
+# Test login (from local machine)
+ssh deploy@YOUR_DROPLET_IP
+
+# Disable root SSH login (optional but recommended)
+# Edit /etc/ssh/sshd_config: PermitRootLogin no
+# Then: systemctl restart sshd
+```
 
 ## Step 1: AWS Setup (Local Machine)
 
@@ -86,13 +135,13 @@ The script outputs a password at the end - **save this somewhere safe!**
 
 ```bash
 # Copy deployment configuration
-scp docker-compose.droplet.yml .env.droplet nginx-simple.conf root@137.184.208.192:/root/enron/
+scp docker-compose.droplet.yml .env.droplet nginx-simple.conf root@YOUR_DROPLET_IP:/root/enron/
 
 # Copy database schema
-scp backend/schema.sql root@137.184.208.192:/root/enron/
+scp backend/schema.sql root@YOUR_DROPLET_IP:/root/enron/
 
 # Copy droplet setup script
-scp droplet-setup.sh root@137.184.208.192:/root/enron/
+scp droplet-setup.sh root@YOUR_DROPLET_IP:/root/enron/
 ```
 
 ### 3.2 Copy Data Files (Optional - if you have data locally)
@@ -100,12 +149,12 @@ scp droplet-setup.sh root@137.184.208.192:/root/enron/
 **Option A: If you have extracted_data locally**
 ```bash
 # This will take 10-20 minutes (1.7GB)
-rsync -avz --progress extracted_data root@137.184.208.192:/root/enron/
+rsync -avz --progress extracted_data root@YOUR_DROPLET_IP:/root/enron/
 ```
 
 **Option B: If you have a PostgreSQL dump**
 ```bash
-scp enron_backup.sql root@137.184.208.192:/root/enron/
+scp enron_backup.sql root@YOUR_DROPLET_IP:/root/enron/
 ```
 
 **Option C: No data yet**
@@ -116,7 +165,7 @@ Skip this - you'll set up the empty database and can load data later.
 ### 4.1 SSH to Droplet
 
 ```bash
-ssh root@137.184.208.192
+ssh root@YOUR_DROPLET_IP
 ```
 
 ### 4.2 Run Setup Script
@@ -153,7 +202,7 @@ Example:
 ```bash
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin \
-  123456789012.dkr.ecr.us-east-1.amazonaws.com
+  YOUR_AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com
 ```
 
 ## Step 5: Deploy Application
@@ -220,7 +269,7 @@ The database is initialized with the schema - you can load data later.
 
 Open your browser:
 ```
-http://137.184.208.192
+http://YOUR_DROPLET_IP
 ```
 
 You should see the Enron Email visualization app!
@@ -264,7 +313,7 @@ docker-compose -f docker-compose.droplet.yml exec postgres \
   pg_dump -U enron enron_emails > backup-$(date +%Y%m%d).sql
 
 # Download to local machine
-scp root@137.184.208.192:/root/enron/backup-*.sql .
+scp root@YOUR_DROPLET_IP:/root/enron/backup-*.sql .
 ```
 
 ### Restore Database
@@ -334,7 +383,7 @@ df -h
 
 ### Optional: Add a Domain
 
-1. Point domain to `137.184.208.192`
+1. Point domain to `YOUR_DROPLET_IP`
 2. Update `docker-compose.droplet.yml` with domain
 3. Add SSL with Let's Encrypt (see `backend/deploy.sh` for example)
 
@@ -363,5 +412,5 @@ If you encounter issues:
 ---
 
 **Deployment created**: $(date)
-**Droplet IP**: 137.184.208.192
-**App URL**: http://137.184.208.192
+**Droplet IP**: YOUR_DROPLET_IP
+**App URL**: http://YOUR_DROPLET_IP

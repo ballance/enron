@@ -8,7 +8,16 @@ echo "======================================"
 echo ""
 
 # Configuration
-DROPLET_IP="137.184.208.192"
+# Get droplet IP from environment or prompt user
+if [ -z "$DROPLET_IP" ]; then
+    echo "Enter your DigitalOcean Droplet IP address:"
+    read -r DROPLET_IP
+    if [ -z "$DROPLET_IP" ]; then
+        echo "❌ Error: Droplet IP is required"
+        exit 1
+    fi
+fi
+
 POSTGRES_PASSWORD=$(openssl rand -base64 32)
 
 echo "📋 Configuration:"

@@ -1,6 +1,6 @@
 # Quick Start Deployment Guide
 
-**Target**: Deploy to `137.184.208.192` using AWS ECR
+**Target**: Deploy to `YOUR_DROPLET_IP` using AWS ECR
 
 ## Prerequisites
 - AWS CLI configured (`aws configure`)
@@ -16,18 +16,18 @@
 # Save the PostgreSQL password that's printed at the end!
 
 # 2. Copy files to droplet
-scp docker-compose.droplet.yml .env.droplet nginx-simple.conf droplet-setup.sh root@137.184.208.192:/root/enron/
-scp backend/schema.sql root@137.184.208.192:/root/enron/
+scp docker-compose.droplet.yml .env.droplet nginx-simple.conf droplet-setup.sh root@YOUR_DROPLET_IP:/root/enron/
+scp backend/schema.sql root@YOUR_DROPLET_IP:/root/enron/
 
 # 3. (Optional) Copy data if you have it
-rsync -avz --progress extracted_data root@137.184.208.192:/root/enron/
+rsync -avz --progress extracted_data root@YOUR_DROPLET_IP:/root/enron/
 ```
 
 ## On Droplet (2 minutes)
 
 ```bash
 # 1. SSH to droplet
-ssh root@137.184.208.192
+ssh root@YOUR_DROPLET_IP
 
 # 2. Setup environment
 cd /root/enron
@@ -56,7 +56,7 @@ python3 load_to_postgres.py --data-dir extracted_data
 
 ## Access
 
-Open browser: **http://137.184.208.192**
+Open browser: **http://YOUR_DROPLET_IP**
 
 ## Common Commands
 

@@ -12,6 +12,11 @@ ENV/
 # Environment & Secrets
 .env
 .env.local
+.env.droplet
+.env.*
+docker-compose.droplet.yml
+backend/.env.production
+nginx-simple.conf
 
 # Data files (large)
 maildir/

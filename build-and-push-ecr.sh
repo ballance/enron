@@ -3,10 +3,19 @@
 set -e
 
 # Configuration
-AWS_REGION="us-east-1"  # Change this to your preferred region
+AWS_REGION="${AWS_REGION:-us-east-1}"  # Can override with env var
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
 ECR_REPOSITORY="enron-email"
-DROPLET_IP="137.184.208.192"
+
+# Get droplet IP from environment or prompt user
+if [ -z "$DROPLET_IP" ]; then
+    echo "Enter your DigitalOcean Droplet IP address:"
+    read -r DROPLET_IP
+    if [ -z "$DROPLET_IP" ]; then
+        echo "❌ Error: Droplet IP is required"
+        exit 1
+    fi
+fi
 
 # Get git commit hash for versioning
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
