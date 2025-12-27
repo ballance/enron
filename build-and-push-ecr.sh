@@ -8,6 +8,10 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/de
 ECR_REPOSITORY="enron-email"
 DROPLET_IP="137.184.208.192"
 
+# Get git commit hash for versioning
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_COMMIT_FULL=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+
 echo "======================================"
 echo "Build & Push to AWS ECR"
 echo "======================================"
@@ -29,6 +33,7 @@ fi
 
 echo "✅ AWS Account: $AWS_ACCOUNT_ID"
 echo "✅ Region: $AWS_REGION"
+echo "✅ Git Commit: $GIT_COMMIT ($GIT_COMMIT_FULL)"
 echo ""
 
 # ECR repository URLs
@@ -57,6 +62,7 @@ echo "🔨 Building backend image..."
 cd backend
 docker build -t ${ECR_REPOSITORY}-backend:latest .
 docker tag ${ECR_REPOSITORY}-backend:latest ${ECR_BACKEND}:latest
+docker tag ${ECR_REPOSITORY}-backend:latest ${ECR_BACKEND}:${GIT_COMMIT}
 docker tag ${ECR_REPOSITORY}-backend:latest ${ECR_BACKEND}:$(date +%Y%m%d-%H%M%S)
 cd ..
 echo "✅ Backend built"
@@ -64,10 +70,11 @@ echo ""
 
 # Build frontend
 echo "🔨 Building frontend image..."
-VITE_API_URL="http://${DROPLET_IP}"
+VITE_API_URL="http://${DROPLET_IP}/api"
 cd frontend
 docker build --build-arg VITE_API_URL=${VITE_API_URL} -t ${ECR_REPOSITORY}-frontend:latest .
 docker tag ${ECR_REPOSITORY}-frontend:latest ${ECR_FRONTEND}:latest
+docker tag ${ECR_REPOSITORY}-frontend:latest ${ECR_FRONTEND}:${GIT_COMMIT}
 docker tag ${ECR_REPOSITORY}-frontend:latest ${ECR_FRONTEND}:$(date +%Y%m%d-%H%M%S)
 cd ..
 echo "✅ Frontend built"
@@ -76,14 +83,16 @@ echo ""
 # Push to ECR
 echo "📤 Pushing backend to ECR..."
 docker push ${ECR_BACKEND}:latest
+docker push ${ECR_BACKEND}:${GIT_COMMIT}
 docker push ${ECR_BACKEND}:$(date +%Y%m%d-%H%M%S)
-echo "✅ Backend pushed"
+echo "✅ Backend pushed (tags: latest, ${GIT_COMMIT}, timestamp)"
 echo ""
 
 echo "📤 Pushing frontend to ECR..."
 docker push ${ECR_FRONTEND}:latest
+docker push ${ECR_FRONTEND}:${GIT_COMMIT}
 docker push ${ECR_FRONTEND}:$(date +%Y%m%d-%H%M%S)
-echo "✅ Frontend pushed"
+echo "✅ Frontend pushed (tags: latest, ${GIT_COMMIT}, timestamp)"
 echo ""
 
 # Create docker-compose file for droplet
@@ -238,9 +247,16 @@ echo "======================================"
 echo "✅ Build & Push Complete!"
 echo "======================================"
 echo ""
-echo "Images pushed to ECR:"
-echo "  Backend:  ${ECR_BACKEND}:latest"
-echo "  Frontend: ${ECR_FRONTEND}:latest"
+echo "Images pushed to ECR with tags:"
+echo "  Backend:  ${ECR_BACKEND}"
+echo "    - latest"
+echo "    - ${GIT_COMMIT}"
+echo "    - timestamp"
+echo ""
+echo "  Frontend: ${ECR_FRONTEND}"
+echo "    - latest"
+echo "    - ${GIT_COMMIT}"
+echo "    - timestamp"
 echo ""
 echo "======================================"
 echo "Next: Deploy to Droplet"
