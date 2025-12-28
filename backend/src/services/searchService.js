@@ -55,6 +55,8 @@ export async function search(query, type = 'all', limit = 10) {
   }
 
   if (type === 'all' || type === 'messages') {
+    // Convert search query to tsquery format (handles multi-word searches)
+    const tsQuery = query.trim().split(/\s+/).join(' & ');
     const messagesQuery = `
       SELECT
         m.id,
@@ -64,15 +66,16 @@ export async function search(query, type = 'all', limit = 10) {
         m.thread_id,
         p.email as sender_email,
         p.name as sender_name,
-        SUBSTRING(m.body, 1, 200) as body_preview
+        SUBSTRING(m.body, 1, 200) as body_preview,
+        ts_rank(m.body_tsv, to_tsquery('english', $1)) as rank
       FROM messages m
       LEFT JOIN people p ON m.from_person_id = p.id
-      WHERE LOWER(m.subject) LIKE $1
-         OR LOWER(m.body) LIKE $1
-      ORDER BY m.date DESC
-      LIMIT $2
+      WHERE LOWER(m.subject) LIKE $2
+         OR m.body_tsv @@ to_tsquery('english', $1)
+      ORDER BY rank DESC, m.date DESC
+      LIMIT $3
     `;
-    const messagesResult = await pool.query(messagesQuery, [searchTerm, limit]);
+    const messagesResult = await pool.query(messagesQuery, [tsQuery, searchTerm, limit]);
     results.messages = messagesResult.rows;
   }
 

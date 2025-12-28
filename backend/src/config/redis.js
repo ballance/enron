@@ -41,24 +41,43 @@ export const cacheTTL = {
   search: 5 * 60,           // 5 minutes
 };
 
-// Helper function to get or set cache
+// In-flight request deduplication to prevent cache stampede
+const inFlightRequests = new Map();
+
+// Helper function to get or set cache with stampede protection
 export const getOrSetCache = async (key, ttl, fetchFunction) => {
   try {
-    // Try to get from cache
+    // Try to get from cache first
     const cached = await redis.get(key);
     if (cached) {
       return JSON.parse(cached);
     }
 
-    // If not in cache, fetch data
-    const data = await fetchFunction();
+    // Check if there's already an in-flight request for this key
+    if (inFlightRequests.has(key)) {
+      // Wait for the existing request to complete
+      return await inFlightRequests.get(key);
+    }
 
-    // Store in cache
-    await redis.setex(key, ttl, JSON.stringify(data));
+    // Create a new promise for this fetch operation
+    const fetchPromise = (async () => {
+      try {
+        const data = await fetchFunction();
+        await redis.setex(key, ttl, JSON.stringify(data));
+        return data;
+      } finally {
+        // Clean up the in-flight request
+        inFlightRequests.delete(key);
+      }
+    })();
 
-    return data;
+    // Store the promise so other requests can wait on it
+    inFlightRequests.set(key, fetchPromise);
+
+    return await fetchPromise;
   } catch (error) {
     console.error('Cache error:', error);
+    inFlightRequests.delete(key);
     // If cache fails, just fetch data directly
     return await fetchFunction();
   }

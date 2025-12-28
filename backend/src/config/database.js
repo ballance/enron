@@ -12,9 +12,11 @@ const pool = new Pool({
   database: process.env.POSTGRES_DB || 'enron_emails',
   user: process.env.POSTGRES_USER || 'enron',
   password: process.env.POSTGRES_PASSWORD || 'enron_dev_password',
-  max: 10, // Maximum number of connections in the pool
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  max: 25, // Maximum number of connections in the pool (increased for production)
+  min: 5, // Minimum number of connections to maintain
+  idleTimeoutMillis: 15000, // Close idle connections after 15 seconds
+  connectionTimeoutMillis: 5000, // Wait 5 seconds for connection
+  statement_timeout: 30000, // Cancel queries after 30 seconds
 });
 
 // Test connection on startup
