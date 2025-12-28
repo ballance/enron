@@ -53,3 +53,6 @@ sample_extraction/
 # Docker volumes
 postgres_data/
 pgadmin_data/
+
+# Playwright MCP
+.playwright-mcp/
