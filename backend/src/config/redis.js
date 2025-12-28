@@ -35,7 +35,7 @@ export const cacheKeys = {
 
 // Cache TTL (Time To Live) in seconds
 export const cacheTTL = {
-  stats: 24 * 60 * 60,      // 24 hours
+  stats: 60 * 60,           // 1 hour
   lists: 60 * 60,           // 1 hour
   details: 5 * 60,          // 5 minutes
   search: 5 * 60,           // 5 minutes

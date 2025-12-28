@@ -78,13 +78,15 @@ export const getHourlyActivity = async (options = {}) => {
     params.push(endDate);
   }
 
+  // Note: Timestamps are stored in sender's local time (no timezone info preserved)
+  // Most Enron emails originated from Houston (CST) or California (PST)
   const query = `
     SELECT
-      EXTRACT(HOUR FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::int as hour,
+      EXTRACT(HOUR FROM date)::int as hour,
       COUNT(*)::int as count
     FROM messages
     ${whereClause}
-    GROUP BY EXTRACT(HOUR FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')
+    GROUP BY EXTRACT(HOUR FROM date)
     ORDER BY hour
   `;
 
@@ -127,11 +129,11 @@ export const getDailyActivity = async (options = {}) => {
 
   const query = `
     SELECT
-      EXTRACT(DOW FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::int as day,
+      EXTRACT(DOW FROM date)::int as day,
       COUNT(*)::int as count
     FROM messages
     ${whereClause}
-    GROUP BY EXTRACT(DOW FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')
+    GROUP BY EXTRACT(DOW FROM date)
     ORDER BY day
   `;
 
@@ -175,13 +177,13 @@ export const getActivityHeatmap = async (options = {}) => {
 
   const query = `
     SELECT
-      EXTRACT(HOUR FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::int as hour,
-      EXTRACT(DOW FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::int as day,
+      EXTRACT(HOUR FROM date)::int as hour,
+      EXTRACT(DOW FROM date)::int as day,
       COUNT(*)::int as count
     FROM messages
     ${whereClause}
-    GROUP BY EXTRACT(HOUR FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago'),
-             EXTRACT(DOW FROM date AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')
+    GROUP BY EXTRACT(HOUR FROM date),
+             EXTRACT(DOW FROM date)
     ORDER BY hour, day
   `;
 
