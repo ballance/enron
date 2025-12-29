@@ -1,6 +1,8 @@
 # Enron Email Dataset - PostgreSQL Graph Database
 
-A complete pipeline for extracting, processing, and analyzing the Enron email corpus as a graph database in PostgreSQL.
+A complete pipeline for extracting, processing, and analyzing the Enron email corpus as a graph database in PostgreSQL, with a modern web UI for visualization.
+
+**Live Demo:** https://enron.bastionforge.com
 
 ## ⚠️ Security Notice
 
@@ -84,10 +86,52 @@ docker-compose exec postgres psql -U enron -d enron_emails
 - User: `enron`
 - Password: `enron_dev_password`
 
+## 🌐 Web Interface
+
+The project includes a full-featured web UI for exploring the email dataset:
+
+### Features
+
+- **Dashboard** - Overview stats, top senders/receivers with charts
+- **Network Graph** - Interactive 2D/3D visualization of email relationships
+- **Timeline** - Email volume over time with hourly/daily heatmaps
+- **Thread Explorer** - Browse conversation threads with tree view
+- **Search** - Full-text search across messages, people, and threads
+- **Person View** - Detailed view of any email address with activity graphs
+
+### Tech Stack
+
+- **Frontend:** React 18, Vite, TailwindCSS, Recharts, React Force Graph
+- **Backend:** Node.js, Express, PostgreSQL, Redis
+- **Deployment:** Docker, Nginx, Let's Encrypt SSL
+
+### Running Locally
+
+```bash
+# Start all services
+docker-compose up -d
+
+# Frontend: http://localhost:3000
+# API: http://localhost:3001/api
+```
+
 ## 📁 Project Structure
 
 ```
 enron/
+├── frontend/                  # React web application
+│   ├── src/
+│   │   ├── components/        # UI components
+│   │   ├── hooks/             # React Query hooks
+│   │   └── api/               # API client
+│   └── vite.config.js         # Build configuration
+├── backend/                   # Node.js API server
+│   ├── src/
+│   │   ├── routes/            # API endpoints
+│   │   ├── services/          # Business logic
+│   │   └── config/            # Database & Redis config
+│   └── nginx/                 # Nginx configuration
+├── migrations/                # Database migrations
 ├── extract_emails.py          # Extract emails from tarball to JSON
 ├── load_to_postgres.py        # Load JSON into PostgreSQL
 ├── reprocess_failed_emails.py # Recovery tool for failed extractions
@@ -99,7 +143,7 @@ enron/
 ├── requirements.txt           # Python dependencies
 ├── .env.example               # Environment configuration template
 ├── extracted_data/            # JSON batch files (created during extraction)
-└── GETTING_STARTED.md        # Detailed setup guide
+└── GETTING_STARTED.md         # Detailed setup guide
 ```
 
 ## 🗄️ Database Schema
@@ -194,6 +238,44 @@ ORDER BY month;
 ```
 
 See `example_queries.sql` for more examples.
+
+## 🔌 API Endpoints
+
+The backend provides a RESTful API:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/analytics/stats` | Overall statistics |
+| `GET /api/analytics/dashboard` | Batched dashboard data (stats + top senders/receivers) |
+| `GET /api/analytics/top-senders` | Top email senders |
+| `GET /api/analytics/top-receivers` | Top email receivers |
+| `GET /api/people` | List/search people |
+| `GET /api/people/:id` | Person details with activity |
+| `GET /api/threads` | List threads with pagination |
+| `GET /api/threads/:id` | Thread details with messages |
+| `GET /api/network/graph` | Network graph data for visualization |
+| `GET /api/timeline/volume` | Email volume over time |
+| `GET /api/timeline/heatmap` | Hour/day activity heatmap |
+| `GET /api/search` | Full-text search across all entities |
+
+## ⚡ Performance Optimizations
+
+The production deployment includes several performance enhancements:
+
+### Database
+- **Composite indexes** for thread queries, network graph, and analytics
+- **Full-text search** with tsvector/GIN index on message body (517K messages)
+- **Connection pooling** with 25 connections, query timeout, and min pool size
+
+### Caching
+- **Redis caching** with 1-hour TTL for stats, 5-minute for lists
+- **Cache stampede protection** via request deduplication
+- **Batched API endpoints** to reduce round trips
+
+### Frontend
+- **Vendor chunk splitting** (React, Charts, Graph libraries separated)
+- **Lazy loading** for all route components
+- **Static asset caching** with 30-day Cache-Control headers
 
 ## 🛠️ Makefile Commands
 
