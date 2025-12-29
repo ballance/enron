@@ -4,6 +4,8 @@ import useNetworkStore from '../store/networkStore';
 import NetworkGraph from '../components/network/NetworkGraph';
 import NetworkControls from '../components/network/NetworkControls';
 import NodeDetails from '../components/network/NodeDetails';
+import ExportButton from '../components/common/ExportButton';
+import { columnDefs } from '../utils/export';
 
 export default function NetworkView() {
   const { filters, searchQuery, setHighlightedNodes, selectedNode, rotation, setRotation } = useNetworkStore();
@@ -64,6 +66,37 @@ export default function NetworkView() {
     refetch();
   };
 
+  // Prepare network data for export
+  const handleNetworkExport = (format) => {
+    if (!data || !data.nodes || !data.edges) return null;
+
+    // For CSV, we need to enrich edges with email addresses
+    const enrichedEdges = data.edges.map(edge => {
+      const sourceNode = data.nodes.find(n => n.id === edge.source);
+      const targetNode = data.nodes.find(n => n.id === edge.target);
+      return {
+        ...edge,
+        sourceEmail: sourceNode?.email || '',
+        targetEmail: targetNode?.email || '',
+      };
+    });
+
+    if (format === 'json') {
+      return {
+        nodes: data.nodes,
+        edges: data.edges,
+        stats: stats,
+        filters: filters,
+      };
+    }
+
+    // For CSV, return structure that ExportButton can handle
+    return {
+      nodes: data.nodes,
+      edges: enrichedEdges,
+    };
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -92,6 +125,17 @@ export default function NetworkView() {
                 <p className="text-2xl font-bold text-gray-900">{filters.minEmails}</p>
               </div>
             </div>
+            <ExportButton
+              onExport={handleNetworkExport}
+              columns={{
+                nodes: columnDefs.networkNodes,
+                edges: columnDefs.networkEdges,
+              }}
+              filename="enron-network"
+              disabled={!data || isLoading}
+              variant="compact"
+              label="Export Graph"
+            />
           </div>
         </div>
       )}

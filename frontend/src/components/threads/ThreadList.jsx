@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useThreads } from '../../hooks/useThreads';
+import ExportButton from '../common/ExportButton';
+import { columnDefs } from '../../utils/export';
 
 const ThreadList = ({ onSelectThread, selectedThreadId }) => {
   const [page, setPage] = useState(1);
@@ -38,7 +40,18 @@ const ThreadList = ({ onSelectThread, selectedThreadId }) => {
     <div className="flex flex-col h-full">
       {/* Header with sort controls */}
       <div className="p-4 border-b bg-white">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3">Email Threads</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold text-gray-900">Email Threads</h3>
+          {threads.length > 0 && (
+            <ExportButton
+              onExport={() => threads}
+              columns={columnDefs.threads}
+              filename="enron-threads"
+              disabled={threads.length === 0}
+              variant="icon"
+            />
+          )}
+        </div>
         <div>
           <label htmlFor="sortBy" className="block text-sm text-gray-600 mb-1">
             Sort by

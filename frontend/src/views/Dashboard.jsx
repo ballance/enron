@@ -2,6 +2,8 @@ import React from 'react';
 import { useStats, useTopSenders, useTopReceivers } from '../hooks/useAnalytics';
 import StatsCard from '../components/dashboard/StatsCard';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ExportIconButton } from '../components/common/ExportButton';
+import { columnDefs } from '../utils/export';
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useStats();
@@ -54,7 +56,16 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Top Senders Chart */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Email Senders</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Top Email Senders</h3>
+            {topSendersData?.data?.length > 0 && (
+              <ExportIconButton
+                onExport={() => topSendersData.data}
+                columns={columnDefs.topSenders}
+                filename="enron-top-senders"
+              />
+            )}
+          </div>
           {sendersLoading ? (
             <div className="h-64 flex items-center justify-center text-gray-500">Loading...</div>
           ) : (
@@ -79,7 +90,16 @@ export default function Dashboard() {
 
         {/* Top Receivers Chart */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Email Receivers</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Top Email Receivers</h3>
+            {topReceiversData?.data?.length > 0 && (
+              <ExportIconButton
+                onExport={() => topReceiversData.data}
+                columns={columnDefs.topReceivers}
+                filename="enron-top-receivers"
+              />
+            )}
+          </div>
           {receiversLoading ? (
             <div className="h-64 flex items-center justify-center text-gray-500">Loading...</div>
           ) : (

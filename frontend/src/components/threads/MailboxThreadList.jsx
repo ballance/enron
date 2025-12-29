@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useMailboxThreads } from '../../hooks/useThreads';
+import { ExportIconButton } from '../common/ExportButton';
+import { columnDefs } from '../../utils/export';
 
 const MailboxThreadList = ({ personId, view, onSelectThread, selectedThreadId }) => {
   const [page, setPage] = useState(1);
@@ -48,8 +50,18 @@ const MailboxThreadList = ({ personId, view, onSelectThread, selectedThreadId })
       <div className="p-4 border-b bg-white">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold text-gray-900 capitalize">{view}</h3>
-          <div className="text-sm text-gray-600">
-            {pagination.total?.toLocaleString() || 0} threads
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">
+              {pagination.total?.toLocaleString() || 0} threads
+            </span>
+            {threads.length > 0 && (
+              <ExportIconButton
+                onExport={() => threads}
+                columns={columnDefs.threads}
+                filename={`enron-mailbox-${view}`}
+                disabled={threads.length === 0}
+              />
+            )}
           </div>
         </div>
         <div>

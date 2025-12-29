@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '../api/client';
+import ExportButton from '../components/common/ExportButton';
+import { columnDefs } from '../utils/export';
 
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
@@ -45,6 +47,39 @@ export default function SearchResults() {
     { id: 'messages', label: 'Messages', count: messages.length },
   ];
 
+  // Export callback - returns data based on current view
+  const handleExport = () => {
+    if (activeType === 'people' || (activeType === 'all' && people.length > 0)) {
+      return { type: 'people', data: people };
+    }
+    if (activeType === 'threads' || (activeType === 'all' && threads.length > 0)) {
+      return { type: 'threads', data: threads };
+    }
+    if (activeType === 'messages' || (activeType === 'all' && messages.length > 0)) {
+      return { type: 'messages', data: messages };
+    }
+    // For 'all' type, combine all results
+    if (activeType === 'all') {
+      return {
+        type: 'combined',
+        data: {
+          people,
+          threads,
+          messages,
+        }
+      };
+    }
+    return null;
+  };
+
+  // Get columns based on active type
+  const getExportColumns = () => {
+    if (activeType === 'people') return columnDefs.people;
+    if (activeType === 'threads') return columnDefs.threads;
+    if (activeType === 'messages') return columnDefs.messages;
+    return columnDefs.people; // Default for 'all'
+  };
+
   if (!query || query.trim().length < 2) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -72,10 +107,31 @@ export default function SearchResults() {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-          Search Results
-        </h2>
-        <p className="text-gray-600">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-900">
+            Search Results
+          </h2>
+          {totalResults > 0 && (
+            <ExportButton
+              onExport={(format) => {
+                const result = handleExport();
+                if (!result) return null;
+                // For JSON with 'all' type, export combined object
+                if (format === 'json' && result.type === 'combined') {
+                  return result.data;
+                }
+                // For CSV or single type, return the data array
+                return result.data;
+              }}
+              columns={getExportColumns()}
+              filename={`enron-search-${query.replace(/\s+/g, '-')}`}
+              disabled={totalResults === 0}
+              variant="compact"
+              label="Export Results"
+            />
+          )}
+        </div>
+        <p className="text-gray-600 mt-2">
           Found <span className="font-semibold">{totalResults}</span> results for "{query}"
         </p>
       </div>
