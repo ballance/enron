@@ -21,10 +21,15 @@ nginx-simple.conf
 # Data files (large)
 maildir/
 extracted_data/
+extracted_data_with_attachments/
+extracted_edrm_data/
+pst_data/
 enron_mail_*.tar.gz
 *.db
 *.sqlite
 *.parquet
+pst_download_urls.txt
+monitor_and_process.sh
 
 # Logs
 *.log
