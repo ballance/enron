@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { checkDatabaseHealth } from './config/database.js';
 import { checkRedisHealth } from './config/redis.js';
@@ -9,6 +10,7 @@ import networkRoutes from './routes/network.js';
 import timelineRoutes from './routes/timeline.js';
 import threadsRoutes from './routes/threads.js';
 import searchRoutes from './routes/search.js';
+import attachmentsRoutes from './routes/attachments.js';
 
 dotenv.config();
 
@@ -16,6 +18,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
+app.use(compression()); // Gzip compression for all responses
 app.use(cors({
   origin: process.env.FRONTEND_URL || ['http://localhost:3000', 'http://localhost:3002'],
   credentials: true,
@@ -57,6 +60,7 @@ app.use('/api/network', networkRoutes);
 app.use('/api/timeline', timelineRoutes);
 app.use('/api/threads', threadsRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/attachments', attachmentsRoutes);
 
 // API info endpoint
 app.get('/api', (req, res) => {
@@ -71,6 +75,7 @@ app.get('/api', (req, res) => {
       threads: '/api/threads/*',
       timeline: '/api/timeline/*',
       search: '/api/search/*',
+      attachments: '/api/attachments/*',
     },
   });
 });

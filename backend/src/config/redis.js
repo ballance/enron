@@ -34,11 +34,12 @@ export const cacheKeys = {
 };
 
 // Cache TTL (Time To Live) in seconds
+// Extended for historical data that doesn't change
 export const cacheTTL = {
-  stats: 60 * 60,           // 1 hour
-  lists: 60 * 60,           // 1 hour
-  details: 5 * 60,          // 5 minutes
-  search: 5 * 60,           // 5 minutes
+  stats: 24 * 60 * 60,      // 24 hours
+  lists: 12 * 60 * 60,      // 12 hours
+  details: 60 * 60,         // 1 hour
+  search: 60 * 60,          // 1 hour
 };
 
 // In-flight request deduplication to prevent cache stampede

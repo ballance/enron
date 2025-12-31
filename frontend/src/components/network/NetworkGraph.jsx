@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useMemo } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import useNetworkStore from '../../store/networkStore';
 
@@ -16,6 +16,16 @@ const NetworkGraph = ({ data }) => {
 
   const { nodes = [], edges = [] } = data || {};
 
+  // Precompute max values once per data change (O(n) once, not O(n) per node)
+  const { maxActivity, maxSent, maxReceived } = useMemo(() => ({
+    maxActivity: Math.max(1, ...nodes.map(n => n.totalActivity || (n.sentCount + n.receivedCount))),
+    maxSent: Math.max(1, ...nodes.map(n => n.sentCount || 0)),
+    maxReceived: Math.max(1, ...nodes.map(n => n.receivedCount || 0)),
+  }), [nodes]);
+
+  const maxEdgeValue = useMemo(() =>
+    Math.max(1, ...edges.map(e => e.value || 1)), [edges]);
+
   // Calculate node size based on settings
   const getNodeSize = useCallback((node) => {
     const { nodeSize } = layoutSettings;
@@ -24,24 +34,21 @@ const NetworkGraph = ({ data }) => {
     if (nodeSize === 'uniform') return baseSize;
 
     const activity = node.totalActivity || (node.sentCount + node.receivedCount);
-    const maxActivity = Math.max(...nodes.map(n => n.totalActivity || (n.sentCount + n.receivedCount)));
 
     if (nodeSize === 'activity') {
       return baseSize + (activity / maxActivity) * 8;
     }
 
     if (nodeSize === 'sent') {
-      const maxSent = Math.max(...nodes.map(n => n.sentCount));
-      return baseSize + (node.sentCount / maxSent) * 8;
+      return baseSize + ((node.sentCount || 0) / maxSent) * 8;
     }
 
     if (nodeSize === 'received') {
-      const maxReceived = Math.max(...nodes.map(n => n.receivedCount));
-      return baseSize + (node.receivedCount / maxReceived) * 8;
+      return baseSize + ((node.receivedCount || 0) / maxReceived) * 8;
     }
 
     return baseSize;
-  }, [layoutSettings, nodes]);
+  }, [layoutSettings, maxActivity, maxSent, maxReceived]);
 
   // Calculate node color based on settings
   const getNodeColor = useCallback((node) => {
@@ -61,7 +68,6 @@ const NetworkGraph = ({ data }) => {
 
     if (nodeColor === 'activity') {
       const activity = node.totalActivity || (node.sentCount + node.receivedCount);
-      const maxActivity = Math.max(...nodes.map(n => n.totalActivity || (n.sentCount + n.receivedCount)));
       const ratio = activity / maxActivity;
 
       // Color gradient from light blue to dark blue
@@ -74,7 +80,7 @@ const NetworkGraph = ({ data }) => {
     }
 
     return '#3b82f6';
-  }, [layoutSettings, selectedNode, highlightedNodes, nodes]);
+  }, [layoutSettings, selectedNode, highlightedNodes, maxActivity]);
 
   // Node click handler
   const handleNodeClick = useCallback((node) => {
@@ -134,15 +140,9 @@ const NetworkGraph = ({ data }) => {
         nodeRelSize={4}
         onNodeClick={handleNodeClick}
         linkColor={() => 'rgba(107, 114, 128, 0.7)'}
-        linkWidth={(link) => {
-          const maxValue = Math.max(...edges.map(e => e.value || 1));
-          return 1 + (link.value / maxValue) * 6;
-        }}
+        linkWidth={(link) => 1 + ((link.value || 1) / maxEdgeValue) * 6}
         linkDirectionalParticles={4}
-        linkDirectionalParticleWidth={(link) => {
-          const maxValue = Math.max(...edges.map(e => e.value || 1));
-          return 1 + (link.value / maxValue) * 4;
-        }}
+        linkDirectionalParticleWidth={(link) => 1 + ((link.value || 1) / maxEdgeValue) * 4}
         linkDirectionalParticleSpeed={0.006}
         backgroundColor="#f9fafb"
         enableNodeDrag={true}

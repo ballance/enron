@@ -171,15 +171,19 @@ export async function getThreadTree(threadId, limit = 1000) {
 export async function getThreadMessages(threadId, page = 1, limit = 100) {
   const offset = (page - 1) * limit;
 
-  // Get total count
+  // Get total count of unique messages (deduplicated by sender + body content)
   const countQuery = `
-    SELECT COUNT(*) as total
-    FROM messages
-    WHERE thread_id = $1
+    SELECT COUNT(*) as total FROM (
+      SELECT DISTINCT ON (from_person_id, md5(body))
+        id
+      FROM messages
+      WHERE thread_id = $1
+    ) unique_msgs
   `;
   const countResult = await pool.query(countQuery, [threadId]);
   const totalMessages = parseInt(countResult.rows[0].total);
 
+  // Deduplicate messages by sender + body content hash, keeping the earliest copy
   const query = `
     SELECT
       m.id,
@@ -189,22 +193,137 @@ export async function getThreadMessages(threadId, page = 1, limit = 100) {
       m.body,
       m.date,
       m.in_reply_to,
+      m.has_attachments,
       p.email as sender_email,
       p.name as sender_name
-    FROM messages m
+    FROM (
+      SELECT DISTINCT ON (from_person_id, md5(body))
+        id, message_id, from_person_id, subject, body, date, in_reply_to, has_attachments
+      FROM messages
+      WHERE thread_id = $1
+      ORDER BY from_person_id, md5(body), date ASC
+    ) m
     LEFT JOIN people p ON m.from_person_id = p.id
-    WHERE m.thread_id = $1
     ORDER BY m.date ASC
     LIMIT $2 OFFSET $3
   `;
 
   const result = await pool.query(query, [threadId, limit, offset]);
 
-  // Parse attachments from each message body
-  const messagesWithAttachments = result.rows.map(msg => ({
-    ...msg,
-    attachments: parseAttachments(msg.body)
-  }));
+  // Get message IDs that have attachments
+  const messageIds = result.rows
+    .filter(m => m.has_attachments)
+    .map(m => m.id);
+
+  // Fetch real attachments from database if any messages have them
+  let attachmentsByMessage = {};
+  if (messageIds.length > 0) {
+    const attachmentsQuery = `
+      SELECT
+        ma.message_id,
+        a.id,
+        ma.filename,
+        a.mime_type,
+        a.file_size,
+        a.is_inline
+      FROM message_attachments ma
+      JOIN attachments a ON ma.attachment_id = a.id
+      WHERE ma.message_id = ANY($1)
+      ORDER BY ma.attachment_order
+    `;
+    const attachmentsResult = await pool.query(attachmentsQuery, [messageIds]);
+
+    // Group attachments by message_id
+    attachmentsResult.rows.forEach(att => {
+      if (!attachmentsByMessage[att.message_id]) {
+        attachmentsByMessage[att.message_id] = [];
+      }
+      attachmentsByMessage[att.message_id].push({
+        id: att.id,
+        filename: att.filename,
+        mime_type: att.mime_type,
+        file_size: att.file_size,
+        is_inline: att.is_inline
+      });
+    });
+  }
+
+  // Parse text attachments and collect unique filenames for matching
+  const parsedByMessage = {};
+  const allFilenames = new Set();
+
+  result.rows.forEach(msg => {
+    const parsed = parseAttachments(msg.body);
+    parsedByMessage[msg.id] = parsed;
+    parsed.forEach(att => allFilenames.add(att.filename.toLowerCase()));
+  });
+
+  // Try to match text references to actual files in the database
+  // Optimized: Build Map for O(1) lookup instead of O(n*m) nested loops
+  const matchedFiles = new Map();
+  if (allFilenames.size > 0) {
+    const filenameArray = Array.from(allFilenames);
+    const matchQuery = `
+      SELECT id, original_filename, mime_type, file_size
+      FROM attachments
+      WHERE LOWER(original_filename) = ANY($1)
+         OR LOWER(original_filename) LIKE ANY($2)
+    `;
+    const likePatterns = filenameArray.map(f => `%${f}`);
+
+    try {
+      const matchResult = await pool.query(matchQuery, [filenameArray, likePatterns]);
+
+      // Build lookup maps: exact match and suffix match
+      matchResult.rows.forEach(row => {
+        const lowerName = row.original_filename.toLowerCase();
+        const fileData = {
+          id: row.id,
+          filename: row.original_filename,
+          mime_type: row.mime_type,
+          file_size: row.file_size
+        };
+
+        // Store by exact lowercase name
+        matchedFiles.set(lowerName, fileData);
+
+        // Also store by base filename (last part after any path separators)
+        const baseName = lowerName.split(/[/\\]/).pop();
+        if (baseName && !matchedFiles.has(baseName)) {
+          matchedFiles.set(baseName, fileData);
+        }
+      });
+    } catch (err) {
+      console.error('Error matching text attachments:', err);
+    }
+  }
+
+  // Combine parsed text attachments with real database attachments
+  const messagesWithAttachments = result.rows.map(msg => {
+    // Enhance text attachments with matched file info (O(1) Map lookup)
+    const enhancedAttachments = parsedByMessage[msg.id].map(att => {
+      const lowerFilename = att.filename.toLowerCase();
+      // Try exact match first, then base filename match
+      const match = matchedFiles.get(lowerFilename) || matchedFiles.get(lowerFilename.split(/[/\\]/).pop());
+      if (match) {
+        return {
+          ...att,
+          matched: true,
+          attachmentId: match.id,
+          matchedFilename: match.filename,
+          mime_type: match.mime_type,
+          file_size: match.file_size
+        };
+      }
+      return att;
+    });
+
+    return {
+      ...msg,
+      attachments: enhancedAttachments,  // Text markers (now with matches)
+      realAttachments: attachmentsByMessage[msg.id] || []  // Actual file attachments
+    };
+  });
 
   return {
     messages: messagesWithAttachments,
@@ -299,7 +418,18 @@ export async function getMailboxThreads(personId, view = 'all', page = 1, limit 
     `;
   }
 
+  // Optimized: Use CTE to precompute aggregates once instead of 3 correlated subqueries per row
   const query = `
+    WITH thread_stats AS (
+      SELECT
+        m.thread_id,
+        COUNT(*) FILTER (WHERE m.from_person_id = $1) as sent_count,
+        COUNT(DISTINCT mr.message_id) FILTER (WHERE mr.person_id = $1) as received_count,
+        MAX(m.date) as last_message_date
+      FROM messages m
+      LEFT JOIN message_recipients mr ON mr.message_id = m.id
+      GROUP BY m.thread_id
+    )
     SELECT DISTINCT
       t.id,
       t.subject_normalized,
@@ -308,31 +438,15 @@ export async function getMailboxThreads(personId, view = 'all', page = 1, limit 
       t.start_date,
       t.end_date,
       root_msg.subject as original_subject,
-      (
-        SELECT COUNT(*)
-        FROM messages m_sent
-        WHERE m_sent.thread_id = t.id
-        AND m_sent.from_person_id = $1
-      ) as sent_count,
-      (
-        SELECT COUNT(*)
-        FROM messages m_recv
-        INNER JOIN message_recipients mr_recv ON mr_recv.message_id = m_recv.id
-        WHERE m_recv.thread_id = t.id
-        AND mr_recv.person_id = $1
-      ) as received_count,
-      (
-        SELECT m_last.date
-        FROM messages m_last
-        WHERE m_last.thread_id = t.id
-        ORDER BY m_last.date DESC
-        LIMIT 1
-      ) as last_message_date
+      COALESCE(ts.sent_count, 0) as sent_count,
+      COALESCE(ts.received_count, 0) as received_count,
+      ts.last_message_date
     FROM threads t
     ${joinClause}
     LEFT JOIN messages root_msg ON t.root_message_id = root_msg.id
+    LEFT JOIN thread_stats ts ON ts.thread_id = t.id
     ${whereClause}
-    GROUP BY t.id, root_msg.subject
+    GROUP BY t.id, root_msg.subject, ts.sent_count, ts.received_count, ts.last_message_date
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
