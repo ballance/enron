@@ -38,13 +38,17 @@ class PostgresLoader:
         self.db_password = db_password or os.getenv('POSTGRES_PASSWORD')
         self.conn = None
         self.people_cache: Dict[str, int] = {}  # email -> person_id
+        self.attachment_cache: Dict[str, int] = {}  # sha256_hash -> attachment_id
 
         self.stats = {
             'people': 0,
             'messages': 0,
             'recipients': 0,
             'references': 0,
-            'batches': 0
+            'batches': 0,
+            'attachments': 0,
+            'attachment_refs': 0,
+            'attachments_deduplicated': 0,
         }
 
     def connect(self):
@@ -113,6 +117,60 @@ class PostgresLoader:
         self.people_cache[email] = person_id
         return person_id
 
+    def get_or_create_attachment(self, attachment_data: Dict) -> int:
+        """
+        Get attachment ID by SHA256 hash, creating if not exists.
+
+        Args:
+            attachment_data: Dict with sha256_hash, original_filename, mime_type, etc.
+
+        Returns:
+            Attachment ID
+        """
+        sha256_hash = attachment_data.get('sha256_hash')
+        if not sha256_hash:
+            return None
+
+        # Check cache
+        if sha256_hash in self.attachment_cache:
+            self.stats['attachments_deduplicated'] += 1
+            return self.attachment_cache[sha256_hash]
+
+        cur = self.conn.cursor()
+
+        # Try to get existing
+        cur.execute("SELECT id FROM attachments WHERE sha256_hash = %s", (sha256_hash,))
+        row = cur.fetchone()
+
+        if row:
+            attachment_id = row[0]
+            self.stats['attachments_deduplicated'] += 1
+        else:
+            # Insert new attachment
+            cur.execute(
+                """
+                INSERT INTO attachments (
+                    sha256_hash, original_filename, mime_type,
+                    file_size, storage_path, is_inline
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    sha256_hash,
+                    attachment_data.get('original_filename'),
+                    attachment_data.get('mime_type'),
+                    attachment_data.get('file_size'),
+                    attachment_data.get('storage_path'),
+                    attachment_data.get('is_inline', False)
+                )
+            )
+            attachment_id = cur.fetchone()[0]
+            self.stats['attachments'] += 1
+
+        cur.close()
+        self.attachment_cache[sha256_hash] = attachment_id
+        return attachment_id
+
     def load_batch(self, batch_file: Path):
         """
         Load a batch of emails from a JSON file.
@@ -135,15 +193,20 @@ class PostgresLoader:
                     email_data.get('from_name')
                 )
 
+                # Check if message has attachments
+                attachments = email_data.get('attachments', [])
+                has_attachments = len(attachments) > 0
+
                 # Insert message
                 cur.execute(
                     """
                     INSERT INTO messages (
                         message_id, from_person_id, subject, body, date, timestamp,
                         in_reply_to, mailbox_owner, folder_name, file_path,
-                        x_from, x_to, x_cc, x_bcc, x_folder, x_origin, x_filename
+                        x_from, x_to, x_cc, x_bcc, x_folder, x_origin, x_filename,
+                        has_attachments
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     RETURNING id
                     """,
@@ -164,7 +227,8 @@ class PostgresLoader:
                         email_data.get('x_bcc'),
                         email_data.get('x_folder'),
                         email_data.get('x_origin'),
-                        email_data.get('x_filename')
+                        email_data.get('x_filename'),
+                        has_attachments
                     )
                 )
                 message_db_id = cur.fetchone()[0]
@@ -231,6 +295,28 @@ class PostgresLoader:
                         (message_db_id, ref_msg_id, idx)
                     )
                     self.stats['references'] += 1
+
+                # Insert attachments
+                for att_data in attachments:
+                    attachment_id = self.get_or_create_attachment(att_data)
+                    if attachment_id:
+                        cur.execute(
+                            """
+                            INSERT INTO message_attachments (
+                                message_id, attachment_id, filename,
+                                content_id, attachment_order
+                            ) VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (message_id, attachment_id, attachment_order) DO NOTHING
+                            """,
+                            (
+                                message_db_id,
+                                attachment_id,
+                                att_data.get('original_filename'),
+                                att_data.get('content_id'),
+                                att_data.get('attachment_order', 0)
+                            )
+                        )
+                        self.stats['attachment_refs'] += 1
 
             except psycopg2.IntegrityError as e:
                 # Duplicate message_id, skip
@@ -396,6 +482,11 @@ class PostgresLoader:
         logger.info(f"  Messages loaded: {self.stats['messages']:,}")
         logger.info(f"  Recipients: {self.stats['recipients']:,}")
         logger.info(f"  References: {self.stats['references']:,}")
+        if self.stats['attachments'] > 0 or self.stats['attachment_refs'] > 0:
+            logger.info("Attachment Statistics:")
+            logger.info(f"  Unique attachments: {self.stats['attachments']:,}")
+            logger.info(f"  Attachment references: {self.stats['attachment_refs']:,}")
+            logger.info(f"  Deduplicated: {self.stats['attachments_deduplicated']:,}")
         logger.info("=" * 60)
 
         # Query database for summary
@@ -413,12 +504,29 @@ class PostgresLoader:
         cur.execute("SELECT MIN(date), MAX(date) FROM messages WHERE date IS NOT NULL")
         date_range = cur.fetchone()
 
+        # Check if attachments table exists and get stats
+        try:
+            cur.execute("SELECT COUNT(*) FROM attachments")
+            total_attachments = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM message_attachments")
+            total_attachment_refs = cur.fetchone()[0]
+            cur.execute("SELECT COALESCE(SUM(file_size), 0) FROM attachments")
+            total_size = cur.fetchone()[0]
+        except:
+            total_attachments = 0
+            total_attachment_refs = 0
+            total_size = 0
+
         cur.close()
 
         logger.info("Database Summary:")
         logger.info(f"  Total people: {total_people:,}")
         logger.info(f"  Total messages: {total_messages:,}")
         logger.info(f"  Total threads: {total_threads:,}")
+        if total_attachments > 0:
+            logger.info(f"  Unique attachments: {total_attachments:,}")
+            logger.info(f"  Attachment references: {total_attachment_refs:,}")
+            logger.info(f"  Total attachment size: {total_size / (1024*1024):.2f} MB")
         if date_range[0]:
             logger.info(f"  Date range: {date_range[0]} to {date_range[1]}")
         logger.info("=" * 60)

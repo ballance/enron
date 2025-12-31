@@ -11,8 +11,10 @@ from email.message import Message
 import json
 import tarfile
 import logging
+import hashlib
+import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from email.utils import parseaddr, parsedate_to_datetime
 from email.header import Header
 from datetime import datetime
@@ -29,13 +31,53 @@ logger = logging.getLogger(__name__)
 class EmailParser:
     """Parses individual email files into structured data."""
 
-    def __init__(self):
+    # MIME type to file extension mapping
+    MIME_TO_EXT = {
+        'application/pdf': '.pdf',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'application/vnd.ms-excel': '.xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+        'application/vnd.ms-powerpoint': '.ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/bmp': '.bmp',
+        'image/tiff': '.tiff',
+        'text/plain': '.txt',
+        'text/html': '.html',
+        'text/csv': '.csv',
+        'application/zip': '.zip',
+        'application/x-zip-compressed': '.zip',
+        'application/x-gzip': '.gz',
+        'application/x-tar': '.tar',
+        'application/octet-stream': '.bin',
+        'message/rfc822': '.eml',
+    }
+
+    def __init__(self, attachments_dir: Optional[str] = None, max_attachment_size: int = 50 * 1024 * 1024):
+        """
+        Initialize the email parser.
+
+        Args:
+            attachments_dir: Directory to store extracted attachments. If None, attachments are not extracted.
+            max_attachment_size: Maximum attachment size in bytes (default 50MB)
+        """
+        self.attachments_dir = Path(attachments_dir) if attachments_dir else None
+        self.max_attachment_size = max_attachment_size
+        self.attachment_hashes: Set[str] = set()  # Track seen hashes for deduplication
+
         self.stats = {
             'total': 0,
             'parsed': 0,
             'errors': 0,
             'missing_message_id': 0,
-            'missing_date': 0
+            'missing_date': 0,
+            'attachments_extracted': 0,
+            'attachments_deduplicated': 0,
+            'attachments_skipped_size': 0,
+            'attachment_errors': 0,
         }
 
     @staticmethod
@@ -113,6 +155,9 @@ class EmailParser:
             # Extract body
             body = self._extract_body(msg)
 
+            # Extract attachments (if attachments_dir is configured)
+            attachments = self._extract_attachments(msg, file_path)
+
             # Parse file path to extract mailbox info
             path_parts = Path(file_path).parts
             mailbox_owner = path_parts[1] if len(path_parts) > 1 else None
@@ -131,6 +176,7 @@ class EmailParser:
                 'in_reply_to': in_reply_to if in_reply_to else None,
                 'references': references,
                 'body': body,
+                'attachments': attachments,
                 'mailbox_owner': mailbox_owner,
                 'folder_name': folder_name,
                 'file_path': file_path,
@@ -200,6 +246,164 @@ class EmailParser:
 
         return ""
 
+    def _extract_attachments(self, msg: Message, file_path: str) -> List[Dict[str, Any]]:
+        """
+        Extract attachments from email message.
+
+        Handles:
+        - Standard attachments (Content-Disposition: attachment)
+        - Inline attachments (Content-Disposition: inline)
+        - Unnamed attachments (generates filename from content hash)
+        - Various encodings (base64, quoted-printable, 7bit, 8bit)
+
+        Returns:
+            List of attachment metadata dicts
+        """
+        if not self.attachments_dir:
+            return []
+
+        attachments = []
+        attachment_order = 0
+
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            content_disposition = str(part.get('Content-Disposition', ''))
+
+            # Skip multipart containers
+            if part.get_content_maintype() == 'multipart':
+                continue
+
+            # Skip text/plain and text/html unless explicitly marked as attachment
+            if content_type in ('text/plain', 'text/html'):
+                if 'attachment' not in content_disposition.lower():
+                    continue
+
+            try:
+                # Get payload (decode=True handles base64/quoted-printable)
+                payload = part.get_payload(decode=True)
+                if payload is None:
+                    continue
+
+                # Check size limit
+                if len(payload) > self.max_attachment_size:
+                    self.stats['attachments_skipped_size'] += 1
+                    logger.debug(f"Skipping large attachment ({len(payload)} bytes) in {file_path}")
+                    continue
+
+                # Compute SHA256 hash
+                sha256_hash = hashlib.sha256(payload).hexdigest()
+
+                # Get filename (multiple fallback strategies)
+                filename = self._get_attachment_filename(part, sha256_hash, content_type)
+
+                # Determine if inline
+                is_inline = 'inline' in content_disposition.lower()
+                content_id = part.get('Content-ID', '').strip('<>')
+
+                # Check for deduplication
+                if sha256_hash in self.attachment_hashes:
+                    self.stats['attachments_deduplicated'] += 1
+                    # Still record metadata, but don't write file again
+                    storage_path = self._get_storage_path(sha256_hash)
+                else:
+                    # Write file to disk
+                    storage_path = self._write_attachment(sha256_hash, payload)
+                    self.attachment_hashes.add(sha256_hash)
+                    self.stats['attachments_extracted'] += 1
+
+                attachments.append({
+                    'sha256_hash': sha256_hash,
+                    'original_filename': filename,
+                    'mime_type': content_type,
+                    'file_size': len(payload),
+                    'storage_path': storage_path,
+                    'is_inline': is_inline,
+                    'content_id': content_id if content_id else None,
+                    'attachment_order': attachment_order
+                })
+                attachment_order += 1
+
+            except Exception as e:
+                logger.debug(f"Error extracting attachment from {file_path}: {e}")
+                self.stats['attachment_errors'] += 1
+
+        return attachments
+
+    def _get_attachment_filename(self, part: Message, sha256_hash: str, content_type: str) -> str:
+        """
+        Get filename with multiple fallback strategies.
+
+        Priority:
+        1. Content-Disposition filename parameter
+        2. Content-Type name parameter
+        3. Generated from hash + guessed extension
+        """
+        # Try Content-Disposition filename
+        filename = part.get_filename()
+        if filename:
+            return self._sanitize_filename(filename)
+
+        # Try Content-Type name parameter
+        name = part.get_param('name')
+        if name:
+            return self._sanitize_filename(name)
+
+        # Generate filename from hash
+        ext = self._guess_extension(content_type)
+        return f"unnamed_{sha256_hash[:12]}{ext}"
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """Remove path separators and dangerous characters."""
+        if not filename:
+            return "unnamed"
+
+        # Handle encoded filenames
+        if isinstance(filename, bytes):
+            filename = filename.decode('utf-8', errors='ignore')
+
+        # Remove path components
+        filename = filename.replace('\\', '/').split('/')[-1]
+
+        # Remove null bytes and control characters
+        filename = ''.join(c for c in filename if ord(c) >= 32)
+
+        # Remove potentially dangerous characters
+        filename = re.sub(r'[<>:"|?*]', '_', filename)
+
+        # Limit length (preserve extension)
+        if len(filename) > 255:
+            name, ext = os.path.splitext(filename)
+            filename = name[:255-len(ext)] + ext
+
+        return filename.strip() or "unnamed"
+
+    def _guess_extension(self, content_type: str) -> str:
+        """Map MIME type to file extension."""
+        return self.MIME_TO_EXT.get(content_type, '.bin')
+
+    def _get_storage_path(self, sha256_hash: str) -> str:
+        """
+        Generate storage path using hash-based sharding.
+
+        Structure: ab/cd/abcdef1234567890...
+        First 2 chars as first level, next 2 as second level.
+        """
+        return f"{sha256_hash[:2]}/{sha256_hash[2:4]}/{sha256_hash}"
+
+    def _write_attachment(self, sha256_hash: str, content: bytes) -> str:
+        """Write attachment to disk with sharded directory structure."""
+        storage_path = self._get_storage_path(sha256_hash)
+        full_path = self.attachments_dir / storage_path
+
+        # Create parent directories
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write file
+        with open(full_path, 'wb') as f:
+            f.write(content)
+
+        return storage_path
+
     def print_stats(self):
         """Print parsing statistics."""
         logger.info("=" * 60)
@@ -209,19 +413,42 @@ class EmailParser:
         logger.info(f"  Errors: {self.stats['errors']}")
         logger.info(f"  Missing Message-ID: {self.stats['missing_message_id']}")
         logger.info(f"  Missing Date: {self.stats['missing_date']}")
+        if self.attachments_dir:
+            logger.info("Attachment Statistics:")
+            logger.info(f"  Unique files extracted: {self.stats['attachments_extracted']}")
+            logger.info(f"  Duplicates (reused): {self.stats['attachments_deduplicated']}")
+            logger.info(f"  Skipped (too large): {self.stats['attachments_skipped_size']}")
+            logger.info(f"  Extraction errors: {self.stats['attachment_errors']}")
+            total_refs = self.stats['attachments_extracted'] + self.stats['attachments_deduplicated']
+            logger.info(f"  Total attachment references: {total_refs}")
         logger.info("=" * 60)
 
 
 class EnronExtractor:
     """Extracts emails from the Enron tarball."""
 
-    def __init__(self, tarball_path: str, output_dir: str = "extracted_data"):
+    def __init__(
+        self,
+        tarball_path: str,
+        output_dir: str = "extracted_data",
+        attachments_dir: Optional[str] = None,
+        max_attachment_size: int = 50 * 1024 * 1024
+    ):
         self.tarball_path = Path(tarball_path)
         self.output_dir = Path(output_dir)
-        self.parser = EmailParser()
+        self.attachments_dir = Path(attachments_dir) if attachments_dir else None
+        self.parser = EmailParser(
+            attachments_dir=attachments_dir,
+            max_attachment_size=max_attachment_size
+        )
 
         # Create output directory
         self.output_dir.mkdir(exist_ok=True)
+
+        # Create attachments directory if specified
+        if self.attachments_dir:
+            self.attachments_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Attachments will be saved to: {self.attachments_dir}")
 
     def extract_all(self, limit: Optional[int] = None, batch_size: int = 1000):
         """
@@ -293,32 +520,56 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Extract Enron emails from tarball')
-    parser.add_argument(
+    arg_parser = argparse.ArgumentParser(description='Extract Enron emails from tarball')
+    arg_parser.add_argument(
         '--tarball',
         default='enron_mail_20150507.tar.gz',
         help='Path to the Enron email tarball'
     )
-    parser.add_argument(
+    arg_parser.add_argument(
         '--output',
         default='extracted_data',
         help='Output directory for extracted JSON files'
     )
-    parser.add_argument(
+    arg_parser.add_argument(
         '--limit',
         type=int,
         help='Limit number of emails to extract (for testing)'
     )
-    parser.add_argument(
+    arg_parser.add_argument(
         '--batch-size',
         type=int,
         default=1000,
         help='Number of emails per output file'
     )
+    arg_parser.add_argument(
+        '--extract-attachments',
+        action='store_true',
+        help='Extract attachments to disk'
+    )
+    arg_parser.add_argument(
+        '--attachments-dir',
+        default='extracted_data/attachments',
+        help='Directory for extracted attachments (default: extracted_data/attachments)'
+    )
+    arg_parser.add_argument(
+        '--max-attachment-size',
+        type=int,
+        default=50 * 1024 * 1024,
+        help='Maximum attachment size in bytes to extract (default: 50MB)'
+    )
 
-    args = parser.parse_args()
+    args = arg_parser.parse_args()
 
-    extractor = EnronExtractor(args.tarball, args.output)
+    # Determine attachments_dir based on flags
+    attachments_dir = args.attachments_dir if args.extract_attachments else None
+
+    extractor = EnronExtractor(
+        tarball_path=args.tarball,
+        output_dir=args.output,
+        attachments_dir=attachments_dir,
+        max_attachment_size=args.max_attachment_size
+    )
     extractor.extract_all(limit=args.limit, batch_size=args.batch_size)
 
 
