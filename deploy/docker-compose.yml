@@ -18,7 +18,7 @@ services:
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ../schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U enron -d enron_emails"]
       interval: 5s
@@ -41,7 +41,7 @@ services:
 
   # Backend API
   backend:
-    build: ./backend
+    build: ../backend
     container_name: enron_backend
     ports:
       - "3001:3001"
@@ -61,12 +61,12 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend/src:/app/src
+      - ../backend/src:/app/src
     restart: unless-stopped
 
   # Frontend UI
   frontend:
-    build: ./frontend
+    build: ../frontend
     container_name: enron_frontend
     ports:
       - "3002:3000"
@@ -75,8 +75,8 @@ services:
     depends_on:
       - backend
     volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
+      - ../frontend/src:/app/src
+      - ../frontend/public:/app/public
     restart: unless-stopped
 
   # Optional: pgAdmin for GUI database management

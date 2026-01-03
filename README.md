@@ -51,7 +51,8 @@ pip install -r requirements.txt
 ### 2. Start PostgreSQL
 
 ```bash
-# Start the database
+# Start the database (from deploy/ directory)
+cd deploy
 docker-compose up -d postgres
 
 # Verify it's running
@@ -108,10 +109,11 @@ The project includes a full-featured web UI for exploring the email dataset:
 ### Running Locally
 
 ```bash
-# Start all services
+# Start all services (from deploy/ directory)
+cd deploy
 docker-compose up -d
 
-# Frontend: http://localhost:3000
+# Frontend: http://localhost:3002
 # API: http://localhost:3001/api
 ```
 
@@ -124,20 +126,36 @@ enron/
 │   │   ├── components/        # UI components
 │   │   ├── hooks/             # React Query hooks
 │   │   └── api/               # API client
+│   ├── Dockerfile             # Frontend container build
 │   └── vite.config.js         # Build configuration
 ├── backend/                   # Node.js API server
 │   ├── src/
 │   │   ├── routes/            # API endpoints
 │   │   ├── services/          # Business logic
 │   │   └── config/            # Database & Redis config
-│   └── nginx/                 # Nginx configuration
+│   ├── Dockerfile             # Backend container build
+│   └── schema.sql             # Database schema
+├── deploy/                    # Deployment configuration
+│   ├── docker-compose.yml     # Local development
+│   ├── docker-compose.prod.yml    # Production with SSL
+│   ├── docker-compose.simple.yml  # Simple production (no SSL)
+│   ├── nginx/                 # Nginx configuration
+│   ├── scripts/               # Deployment scripts
+│   │   ├── deploy.sh          # Full deployment with SSL
+│   │   ├── deploy-simple.sh   # Simple deployment
+│   │   ├── build-and-push-ecr.sh  # AWS ECR deployment
+│   │   └── droplet-setup.sh   # DigitalOcean setup
+│   └── docs/                  # Deployment documentation
+│       ├── DEPLOYMENT.md
+│       ├── DEPLOY-QUICK-START.md
+│       ├── DROPLET-DEPLOYMENT.md
+│       └── DEPLOYMENT-CHECKLIST.md
 ├── migrations/                # Database migrations
 ├── extract_emails.py          # Extract emails from tarball to JSON
 ├── load_to_postgres.py        # Load JSON into PostgreSQL
 ├── reprocess_failed_emails.py # Recovery tool for failed extractions
 ├── schema.sql                 # Database schema with indexes & views
 ├── example_queries.sql        # Sample analytical queries
-├── docker-compose.yml         # PostgreSQL & pgAdmin services
 ├── init_db.sh                 # Database initialization script
 ├── Makefile                   # Common commands
 ├── requirements.txt           # Python dependencies

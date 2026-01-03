@@ -316,12 +316,28 @@ thread_id INTEGER REFERENCES threads(id)
 3. ✅ Deployed to DigitalOcean droplet
 4. ✅ Configured AWS ECR for container images
 5. ✅ Added Umami analytics for usage tracking
+6. ✅ Reorganized deployment files into `deploy/` directory
 
 **Infrastructure:**
 - DigitalOcean droplet (137.184.208.192)
 - AWS ECR for Docker image registry
 - Let's Encrypt SSL with auto-renewal
 - Umami self-hosted analytics on port 3002
+
+**Project Structure:**
+```
+deploy/
+├── docker-compose.yml          # Local development
+├── docker-compose.prod.yml     # Production with SSL
+├── docker-compose.simple.yml   # Simple production (no SSL)
+├── nginx/                      # Nginx configuration
+├── scripts/                    # Deployment scripts
+│   ├── deploy.sh
+│   ├── deploy-simple.sh
+│   ├── build-and-push-ecr.sh
+│   └── droplet-setup.sh
+└── docs/                       # Deployment documentation
+```
 
 ### Phase 7: Performance Optimization
 

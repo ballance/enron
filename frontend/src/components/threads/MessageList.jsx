@@ -1,5 +1,5 @@
 import { useState, useCallback, memo, useRef, useEffect } from 'react';
-import { List } from 'react-window';
+import { FixedSizeList as List } from 'react-window';
 import { useThreadMessages } from '../../hooks/useThreads';
 import { getAttachmentDownloadUrl, formatFileSize } from '../../hooks/useAttachments';
 
@@ -284,6 +284,12 @@ const MessageList = ({ threadId, mailboxOwnerId = null }) => {
   // Virtualized row renderer
   const Row = ({ index, style }) => {
     const message = messages[index];
+
+    // Guard against undefined message (race condition)
+    if (!message) {
+      return <div style={style} />;
+    }
+
     const messageNumber = (page - 1) * 100 + index + 1;
     const isExpanded = expandedMessageId === message.id;
     const isFromMailboxOwner = mailboxOwnerId && message.from_person_id === mailboxOwnerId;

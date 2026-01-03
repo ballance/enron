@@ -2,6 +2,11 @@
 
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$DEPLOY_DIR")"
+
 # Configuration
 AWS_REGION="${AWS_REGION:-us-east-1}"  # Can override with env var
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "")
@@ -18,8 +23,8 @@ if [ -z "$DROPLET_IP" ]; then
 fi
 
 # Get git commit hash for versioning
-GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-GIT_COMMIT_FULL=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+GIT_COMMIT=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_COMMIT_FULL=$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")
 
 echo "======================================"
 echo "Build & Push to AWS ECR"
@@ -68,24 +73,20 @@ echo ""
 
 # Build backend
 echo "🔨 Building backend image..."
-cd backend
-docker build -t ${ECR_REPOSITORY}-backend:latest .
+docker build -t ${ECR_REPOSITORY}-backend:latest "$PROJECT_ROOT/backend"
 docker tag ${ECR_REPOSITORY}-backend:latest ${ECR_BACKEND}:latest
 docker tag ${ECR_REPOSITORY}-backend:latest ${ECR_BACKEND}:${GIT_COMMIT}
 docker tag ${ECR_REPOSITORY}-backend:latest ${ECR_BACKEND}:$(date +%Y%m%d-%H%M%S)
-cd ..
 echo "✅ Backend built"
 echo ""
 
 # Build frontend
 echo "🔨 Building frontend image..."
 VITE_API_URL="http://${DROPLET_IP}/api"
-cd frontend
-docker build --build-arg VITE_API_URL=${VITE_API_URL} -t ${ECR_REPOSITORY}-frontend:latest .
+docker build --build-arg VITE_API_URL=${VITE_API_URL} -t ${ECR_REPOSITORY}-frontend:latest "$PROJECT_ROOT/frontend"
 docker tag ${ECR_REPOSITORY}-frontend:latest ${ECR_FRONTEND}:latest
 docker tag ${ECR_REPOSITORY}-frontend:latest ${ECR_FRONTEND}:${GIT_COMMIT}
 docker tag ${ECR_REPOSITORY}-frontend:latest ${ECR_FRONTEND}:$(date +%Y%m%d-%H%M%S)
-cd ..
 echo "✅ Frontend built"
 echo ""
 
@@ -93,19 +94,17 @@ echo ""
 echo "📤 Pushing backend to ECR..."
 docker push ${ECR_BACKEND}:latest
 docker push ${ECR_BACKEND}:${GIT_COMMIT}
-docker push ${ECR_BACKEND}:$(date +%Y%m%d-%H%M%S)
-echo "✅ Backend pushed (tags: latest, ${GIT_COMMIT}, timestamp)"
+echo "✅ Backend pushed (tags: latest, ${GIT_COMMIT})"
 echo ""
 
 echo "📤 Pushing frontend to ECR..."
 docker push ${ECR_FRONTEND}:latest
 docker push ${ECR_FRONTEND}:${GIT_COMMIT}
-docker push ${ECR_FRONTEND}:$(date +%Y%m%d-%H%M%S)
-echo "✅ Frontend pushed (tags: latest, ${GIT_COMMIT}, timestamp)"
+echo "✅ Frontend pushed (tags: latest, ${GIT_COMMIT})"
 echo ""
 
 # Create docker-compose file for droplet
-cat > docker-compose.droplet.yml << EOF
+cat > "$DEPLOY_DIR/docker-compose.droplet.yml" << EOF
 version: '3.8'
 
 services:
@@ -172,7 +171,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx-simple.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx-simple.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - backend
       - frontend
@@ -183,73 +182,18 @@ volumes:
   redis_data:
 EOF
 
-echo "✅ Created docker-compose.droplet.yml"
-echo ""
-
-# Create simplified nginx config
-cat > nginx-simple.conf << 'NGINX_EOF'
-events {
-    worker_connections 1024;
-}
-
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    sendfile on;
-    keepalive_timeout 65;
-    gzip on;
-
-    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
-    limit_req_zone $binary_remote_addr zone=general_limit:10m rate=30r/s;
-
-    upstream backend {
-        server backend:3001;
-    }
-
-    upstream frontend {
-        server frontend:80;
-    }
-
-    server {
-        listen 80;
-        server_name _;
-
-        location /api/ {
-            limit_req zone=api_limit burst=20 nodelay;
-            proxy_pass http://backend/api/;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-
-        location / {
-            limit_req zone=general_limit burst=50 nodelay;
-            proxy_pass http://frontend/;
-            proxy_set_header Host $host;
-        }
-
-        location ~* \.(jpg|jpeg|png|gif|ico|css|js|woff|woff2|ttf|svg)$ {
-            proxy_pass http://frontend;
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-    }
-}
-NGINX_EOF
-
-echo "✅ Created nginx-simple.conf"
+echo "✅ Created deploy/docker-compose.droplet.yml"
 echo ""
 
 # Generate secure password
 POSTGRES_PASSWORD=$(openssl rand -base64 32)
 
 # Create .env file for droplet
-cat > .env.droplet << EOF
+cat > "$DEPLOY_DIR/.env.droplet" << EOF
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 EOF
 
-echo "✅ Created .env.droplet"
+echo "✅ Created deploy/.env.droplet"
 echo ""
 
 echo "======================================"
@@ -260,22 +204,20 @@ echo "Images pushed to ECR with tags:"
 echo "  Backend:  ${ECR_BACKEND}"
 echo "    - latest"
 echo "    - ${GIT_COMMIT}"
-echo "    - timestamp"
 echo ""
 echo "  Frontend: ${ECR_FRONTEND}"
 echo "    - latest"
 echo "    - ${GIT_COMMIT}"
-echo "    - timestamp"
 echo ""
 echo "======================================"
 echo "Next: Deploy to Droplet"
 echo "======================================"
 echo ""
 echo "1. Copy deployment files to droplet:"
-echo "   scp docker-compose.droplet.yml .env.droplet nginx-simple.conf backend/schema.sql root@${DROPLET_IP}:/root/enron/"
+echo "   scp $DEPLOY_DIR/docker-compose.droplet.yml $DEPLOY_DIR/.env.droplet $DEPLOY_DIR/nginx/nginx-simple.conf $PROJECT_ROOT/backend/schema.sql root@${DROPLET_IP}:/root/enron/"
 echo ""
 echo "2. Copy your data to droplet (if you have it locally):"
-echo "   rsync -avz --progress extracted_data root@${DROPLET_IP}:/root/enron/"
+echo "   rsync -avz --progress $PROJECT_ROOT/extracted_data root@${DROPLET_IP}:/root/enron/"
 echo ""
 echo "3. SSH to droplet:"
 echo "   ssh root@${DROPLET_IP}"

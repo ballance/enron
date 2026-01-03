@@ -69,7 +69,7 @@ export function useMessagesWithAttachments(page = 1) {
  * @returns {string} Download URL
  */
 export function getAttachmentDownloadUrl(attachmentId) {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+  const baseUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
   return `${baseUrl}/attachments/${attachmentId}/download`;
 }
 
